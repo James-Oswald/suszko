@@ -3,6 +3,8 @@ import Mathlib.Data.Set.Basic
 import Mathlib.Data.Finset.Basic
 import Mathlib.Data.Finset.Lattice.Basic
 import Mathlib.Data.Set.Image
+import Mathlib.Data.Finite.Defs
+import Mathlib.Data.Fintype.Card
 
 /-
 Kadlecikova 2025 page 11:
@@ -46,6 +48,8 @@ structure ValuationSystem (l : Lang) where
   α_dec : DecidableEq α
   -- The Non-empty Set of truth values
   V : Set α
+  -- If V is finite, it has at least two elements
+  V_geq_2 [Fintype V] : Finset.card V.toFinset ≥ 2
   V_ne : V.Nonempty
   -- The Non-empty subset of designated values
   D : Set α
@@ -58,6 +62,18 @@ structure ValuationSystem (l : Lang) where
   F_bij (n : Nat) :      ((Fin n → l.α) → l.α) → ((Fin n → α) → α)
   F_bij_cond (n : Nat) : Set.BijOn (F_bij n) (l.cons n) (F n)
 
+
+
+structure AtomValuation
+  {l : Lang}
+  (vs : ValuationSystem l)
+where
+  -- The function that maps atoms to the valuation set
+  a : l.α → vs.α
+  -- The image of the atom valuation function is a
+  -- subset of the valuation set
+  a_image : Set.MapsTo a l.atoms vs.V
+
 /-
 Kadlecikova 2025 page 11 Def 7 (from Shramko & Wansing):
 A valuation function v_a : L -> V is defined as adhering
@@ -66,16 +82,13 @@ to the following constraints:
 2. ∀ci ∈ C, va(ci(A1, ..., An)) = fi(va(A1), ..., va(An))
 -/
 structure ValuationFunction
-  (l : Lang)
-  (vs : ValuationSystem l)
+  {l : Lang}
+  {vs : ValuationSystem l}
+  (va : AtomValuation vs)
 where
   -- In the above formalism the valuation of the atoms
   -- is parameterized out, we probably need to do this?
   -- The function that maps atoms to the valuation set
-  a : l.α → vs.α
-  --a_img : a '' l.atoms ⊆ vs.V
-  a_img : Set.MapsTo a l.atoms vs.V
-
   -- The actual valuation function
   v : l.α → vs.α
   --v_img : v '' l.sents ⊆ vs.V
@@ -83,18 +96,18 @@ where
 
   -- conditions on the valuation functions
   -- 1. ∀p ∈ Atom, v_a(p) = a(p);
-  v_atoms : ∀ p ∈ l.atoms, v p = a p
+  v_atoms : ∀ p ∈ l.atoms, v p = va.a p
   -- 2. ∀ci ∈ C, va(ci(A1, ..., An)) = fi(v_a(A1), ..., v_a(An))
   v_cons {n} : ∀ ci ∈ l.cons n, ∀ A, v (ci A) = vs.F_bij n ci (v ∘ A)
 
 /-
 Kadlecikova 2025 page 11 Def 8
-A symmetric model MS = ⟨VS, va⟩ allows us to define entailment in the
+A symmetric model MS = ⟨VS, v_a⟩ allows us to define entailment in the
 symmetric model: Γ ⊨MS ∆ iff ∀γ ∈ Γ : va(γ) ∈ D ⇒ va(∆) ∩ D ≠ ∅
 -/
 structure SymmetricModel (l : Lang) where
   vs : ValuationSystem l
-  v : ValuationFunction l vs
+  v  : (a : AtomValuation vs) -> ValuationFunction a
 
 /-
 Implementation notes:
@@ -104,8 +117,16 @@ the more natural interpretation from the symbols is
 but this makes things annoying and the slides seem to suggest this
 is a valid interpretation.
 -/
-def entails_Ms {l : Lang} (M : SymmetricModel l) (Γ Δ : Finset l.α) : Prop :=
-  (∀ γ ∈ Γ, (M.v.v γ) ∈ M.vs.D) -> (M.v.v '' Δ) ∩ M.vs.D ≠ ∅
+def entails_Ms {l : Lang}
+  (M : SymmetricModel l)
+  (a : AtomValuation M.vs)
+  (Γ Δ : Finset l.α)
+: Prop :=
+  let v_a := (M.v a).v;
+  (∀ γ ∈ Γ, (v_a γ) ∈ M.vs.D) -> (v_a '' Δ) ∩ M.vs.D ≠ ∅
+-- note that v_a '' Δ is the image of the set Δ under v_a
+
+notation Γ "⊨MS[" M "|" a "]" Δ => entails_Ms M a Γ Δ
 
 -- The type of consequence relations over a language l.
 abbrev ConsequenceRelation (l : Lang) := Finset l.α -> Finset l.α -> Prop
@@ -120,9 +141,12 @@ structure Logic where
   l : Lang
   cr : ConsequenceRelation l
 
-structure logicMS extends Logic where
-  M : SymmetricModel l
-  cr := @entails_Ms l M
+/-
+Kadlecikova 2025 page 13
+A logic is trivial if for any Γ, ∆ : Γ ⊨ ∆.
+-/
+def Trivial (l : Logic) : Prop :=
+  ∀ Γ Δ, l.cr Γ Δ
 
 /-
 A consequence relation is Tarskian if it meets these conditions:
@@ -148,7 +172,7 @@ def Tarskian (cr : ConsequenceRelation l) : Prop :=
   cr.Monotonic ∧ cr.Rfl ∧ cr.Trans
 
 
-lemma eMS_mono: ConsequenceRelation.Monotonic (entails_Ms M) := by
+lemma eMS_mono: ConsequenceRelation.Monotonic (entails_Ms M a) := by
   rw [ConsequenceRelation.Monotonic]
   intros Γ Δ ϕ h
   simp_all only [entails_Ms]
@@ -159,7 +183,7 @@ lemma eMS_mono: ConsequenceRelation.Monotonic (entails_Ms M) := by
     not_true_eq_false, not_false_eq_true]
 
 
-lemma eMS_rfl: ConsequenceRelation.Rfl (entails_Ms M) := by
+lemma eMS_rfl: ConsequenceRelation.Rfl (entails_Ms M a) := by
   rw [ConsequenceRelation.Rfl]
   intro ϕ
   simp_all only [entails_Ms]
@@ -169,7 +193,7 @@ lemma eMS_rfl: ConsequenceRelation.Rfl (entails_Ms M) := by
     ne_eq, Set.singleton_inter_eq_empty,
     not_true_eq_false, not_false_eq_true]
 
-lemma eMS_trans : ConsequenceRelation.Trans (entails_Ms M) := by
+lemma eMS_trans : ConsequenceRelation.Trans (entails_Ms M a) := by
   rw [ConsequenceRelation.Trans]
   intros Γ Δ ψ
   simp only [entails_Ms]
@@ -178,5 +202,5 @@ lemma eMS_trans : ConsequenceRelation.Trans (entails_Ms M) := by
     Set.image_singleton, ne_eq, Set.singleton_inter_eq_empty,
     not_not, forall_const, not_true_eq_false, not_false_eq_true]
 
-theorem eMS_tarskian : Tarskian (entails_Ms M) :=
+theorem eMS_tarskian : Tarskian (entails_Ms M a) :=
   ⟨eMS_mono, eMS_rfl, eMS_trans⟩
