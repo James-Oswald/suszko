@@ -14,17 +14,52 @@ connectives (C), with the set of sentences of L the
 smallest set including Atom and closed under the
 connectives from C."
 -/
-structure Lang where
-  {α : Type}
-  [α_deq : DecidableEq α]
+class Language (α : Type) where
+  -- equality of formulae is decidable
+  α_deq : DecidableEq α
+  -- The set of atoms in the language
   atoms : Set α
+  -- The set of atoms is non-empty
   atoms_ne : atoms.Nonempty
-  sents : Set α
+  -- We have a set of all sentences in the language
+  -- Sents should be the
+  sents : Set α := Set.univ
+  -- Condition that our atoms are a subset of the sentences
+  -- TODO: trivial if we force a condition sents = Set.univ,
+  -- maybe this is a better representation?
   atoms_subset : atoms ⊆ sents
   -- sets of n-place connectives, indexed by their arity
   cons (n : Nat) : Set ((Fin n → α) → α)
   -- The language is closed under the connectives
   sents_subset : ∀ n, ∀ f ∈ cons n, ∀a, f a ∈ sents
+  -- TODO? Maybe another condition that atoms can't be constructed
+  -- from connectives?
+
+-- One possible language, propositional logic
+inductive PropFormula : Type
+| atom : String -> PropFormula
+| and : PropFormula -> PropFormula -> PropFormula
+| or : PropFormula -> PropFormula -> PropFormula
+| not : PropFormula -> PropFormula
+| impl : PropFormula -> PropFormula -> PropFormula
+| iff : PropFormula -> PropFormula -> PropFormula
+deriving Inhabited, DecidableEq, Repr
+
+
+
+instance : Lang PropFormula where
+  α_deq := inferInstance
+  atoms := {PropFormula.atom _}
+  atoms_ne := ⟨PropFormula.atom "a", rfl⟩
+  sents := Set.univ
+  atoms_subset := by simp only [Set.subset_univ]
+  cons n :=
+  match n with
+    | 0 => ∅
+    | 1 => {PropFormula.not}
+    | 2 => {PropFormula.and, PropFormula.or, PropFormula.impl, PropFormula.iff}
+    | _ => ∅
+  sents_subset := sorry
 
 /-
 Implementation notes:
