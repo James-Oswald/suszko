@@ -17,7 +17,7 @@ inductive ParseTree
   (c : (n : Nat) -> (Set ((Fin n -> α) → α))) :
   (a : α) -> Type
 where
-| node {a} (n : Nat) (f : (Fin n -> α) → α) (args : (Fin n -> α)) :
+| node {a : α} {n : Nat} (f : (Fin n -> α) → α) (args : (Fin n -> α)) :
   c n f -> (∀ (i : Fin n), ParseTree c (args i)) ->
   f args = a -> ParseTree c a
 
@@ -46,7 +46,7 @@ class Language (α : Type) where
   -- COMMENT: This places no restriction that the parse
   -- tree is unique, which probably violates the spirit of
   -- the definition of a language
-  cons_parsable : ∀ α, Nonempty (ParseTree cons α)
+  cons_parsable : ∀ (a : α), Nonempty (ParseTree cons a)
 
 -- The following are helpers to bundle real connectives
 -- often in the form of α -> ...n -> α into
@@ -84,26 +84,25 @@ def PropFormula.connectives (n : Nat) : Set ((Fin n -> PropFormula) -> PropFormu
     | 2 => {↑PropFormula.and}
     | _ => ∅
 
-instance : Language PropFormula where
-  α_deq := inferInstance
-  cons := PropFormula.connectives
-  atoms_ne := by
-    simp only [Set.Nonempty, Set.mem_setOf_eq];
-    exists (λ _ => PropFormula.atom "a")
-    exists "a"
-  cons_parsable := by
+lemma PropFormula.atoms_ne : (PropFormula.connectives 0).Nonempty := by
+  simp only [Set.Nonempty, Set.mem_setOf_eq];
+  exists (λ _ => PropFormula.atom "a")
+  exists "a"
+
+lemma PropFormula.cons_parsable : ∀ (a : PropFormula), Nonempty (ParseTree PropFormula.connectives a) :=
+by
     intro f
     induction f
     . case atom s =>
       apply Nonempty.intro
-      apply ParseTree.node 0 (PropFormula.atom s) (λ _ => PropFormula.atom s)
+      apply ParseTree.node (Language.bundleZero (PropFormula.atom s)) (λ _ => PropFormula.atom s)
       . simp only [PropFormula.connectives, setOf, exists_apply_eq_apply]
       . apply Fin.elim0
       . rfl
     . case not f ih =>
       apply Nonempty.intro
       have ih := Classical.choice ih
-      apply ParseTree.node 1 (Language.bundleOne PropFormula.not) (λa => f)
+      apply ParseTree.node (Language.bundleOne PropFormula.not) (λa => f)
       . rfl
       . intro i
         exact ih
@@ -112,10 +111,16 @@ instance : Language PropFormula where
       apply Nonempty.intro
       have ih1 := Classical.choice ih1
       have ih2 := Classical.choice ih2
-      apply ParseTree.node 2 (Language.bundleTwo PropFormula.and) (λa => match a with | 0 => f1| 1 => f2)
+      apply ParseTree.node (Language.bundleTwo PropFormula.and) (λa => match a with | 0 => f1| 1 => f2)
       . rfl
       . intro i
         match i with
         | 0 => exact ih1
         | 1 => exact ih2
       . simp only [Language.bundleTwo]
+
+instance : Language PropFormula where
+  α_deq := inferInstance
+  cons := PropFormula.connectives
+  atoms_ne := PropFormula.atoms_ne
+  cons_parsable := PropFormula.cons_parsable
